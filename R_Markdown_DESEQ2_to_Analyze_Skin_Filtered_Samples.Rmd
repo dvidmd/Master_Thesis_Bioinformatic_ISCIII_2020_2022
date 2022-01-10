@@ -1,0 +1,206 @@
+---
+title: "Test Aging_STAR+DESeq2"
+author: "David Martínez Delgado"
+date: "7/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+**Data preparation**
+First, we need to indicate in which directory htseq-count files are located:
+```{r}
+dir <- "/home/vera/Desktop/DAVID_TFM/Dropbox/TFM/PROJECTS AND ANALYSIS/21-07-15_REANALYSIS_OF_RNA_SEQ_SKIN_SAMPLES/CORRECTED_VERSION_21-07-15/FILTERED/SKIN/htseq"
+
+# Use a samples.txt to create the table:
+library(readr)
+samples <- read_delim("samples_FILTERED_SKIN.txt", "\t", escape_double = FALSE, trim_ws = FALSE)
+
+#Showing records from samples file:
+head(samples, 10)
+```
+**Importing data matrix and Differential Expression analysis**
+# Import data matrix using "DESeqDataSetFromHTSeqCount"
+```{r}
+
+# Loading DESeq2 package:
+library(DESeq2) 
+
+# Design sampleTable (Note that an extra "batch" column is necessary for batch correction):
+files <- grep("htseq",list.files(dir),value=TRUE)
+
+sampleTable <- data.frame(sampleName = samples$ID,
+                          fileName = files,
+                          condition = samples$condition)
+
+# Create a DESeq2 object with DESeqDataSetFromTximport function:
+ddsHTSeq <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
+                                       directory = dir,
+                                       design= ~ condition)
+
+# Setting comparison order for DESeq2. If not configured, will be set in alphabetical order. Relevel allow us to specificate the reference level.
+ddsHTSeq$condition <- relevel(ddsHTSeq$condition, ref = "2mo")
+
+# Change name to ddsHTSeq object:
+dds <-ddsHTSeq
+
+# Pre-filtering (Removing rows in which we have less than 1 read in all samples combined):
+
+# dds <- dds[rowSums(DESeq2::counts(dds))] >= 1 
+keep <- rowSums(counts(dds)) >= 1
+dds <- dds[keep,]
+
+# Run differential analysis with DESeq2:
+dds<-DESeq(dds) 
+print(dds)
+
+# Check comparisons name in order to select the ones that you will extract:
+resultsNames(dds)
+
+# Fold change shrinkage:
+library(apeglm)
+res_30mo_vs_2mo <- lfcShrink(dds, coef="condition_30mo_vs_2mo", type="apeglm")
+res_24mo_vs_2mo <- lfcShrink(dds, coef="condition_24mo_vs_2mo", type="apeglm")
+res_15mo_vs_2mo <- lfcShrink(dds, coef="condition_15mo_vs_2mo", type="apeglm")
+res_9mo_vs_2mo <- lfcShrink(dds, coef="condition_9mo_vs_2mo", type="apeglm")
+
+# Output comparison files to csv:
+write.table(res_30mo_vs_2mo, file="condition_30mo_vs_2mo.xls", sep ='\t')
+write.table(res_24mo_vs_2mo, file="condition_24mo_vs_2mo.xls", sep ='\t')
+write.table(res_15mo_vs_2mo, file="condition_15mo_vs_2mo.xls", sep ='\t')
+write.table(res_9mo_vs_2mo, file="condition_9mo_vs_2mo.xls", sep ='\t')
+
+# Obtain normalized read counts:
+normalized_counts <- counts(dds, normalized=TRUE)
+write.table(normalized_counts, file="normalized_counts.xls", sep ='\t')
+
+# vst transformation:
+vsd <-vst(dds, blind = FALSE)
+
+# limma batch correction:
+mat <- assay(vsd)
+#mm <- model.matrix(~condition, colData(vsd))
+#mat <- limma::removeBatchEffect(mat, batch=vsd$batch, design=mm)
+assay(vsd) <- mat
+plotPCA(vsd)
+
+# Write normalized reads:
+write.table(mat,file = "log2_vsd_normalized_reads.xls", sep = "\t")
+
+# Create PCA figure:
+library(ggplot2)
+plotPCA(vsd) + geom_text(aes(label=name),vjust=2)
+```
+**Annotate Ensembl genes** 
+```{r}
+# Annotate Ensembl annotation:
+library(biomaRt)
+library(tidyverse)
+
+# View the available databases:
+listMarts()
+
+# Set up connection to ensembl database:
+ensembl=useMart("ENSEMBL_MART_ENSEMBL")
+
+# List the available datasets (species):
+listDatasets(ensembl) %>% 
+    filter(str_detect(description, "Mouse"))
+
+# Specify a data set to use:
+ensembl = useDataset("mmusculus_gene_ensembl", mart=ensembl)
+
+# Now we need to set up a query. For this we need to specify three things:
+# What type of information we are going to search the dataset on - called filters. In our case this is **Ensembl Gene IDs**
+# A vector of the values for our filter - the Ensembl Gene IDs from our DE results table
+# What columns (attributes) of the dataset we want returned.
+
+# Check the available "filters" - things you can filter for:
+listFilters(ensembl) %>% 
+    filter(str_detect(name, "ensembl"))
+
+# Set the filter type and values:
+filterType <- "ensembl_gene_id"
+
+# filterValues <- rownames(res_28mo_vs_2mo) ==> Original version (Alejandro)
+filterValues_30 <- rownames(res_30mo_vs_2mo)
+filterValues_24 <- rownames(res_24mo_vs_2mo)
+filterValues_15 <- rownames(res_15mo_vs_2mo)
+filterValues_9 <- rownames(res_9mo_vs_2mo)
+
+# Check the available "attributes" - things you can retreive:
+listAttributes(ensembl) %>% 
+    head(40)
+
+# Set the list of attributes:
+attributeNames <- c('ensembl_gene_id', 'external_gene_name', 'chromosome_name', 'start_position', 'end_position', 'strand', 'gene_biotype')
+
+# Run the query:
+annot_30 <- getBM(attributes=attributeNames, 
+               filters = filterType, 
+               values = filterValues_30, 
+               mart = ensembl)
+
+annot_24 <- getBM(attributes=attributeNames, 
+               filters = filterType, 
+               values = filterValues_24, 
+               mart = ensembl)
+
+annot_15 <- getBM(attributes=attributeNames, 
+               filters = filterType, 
+               values = filterValues_15, 
+               mart = ensembl)
+
+annot_9 <- getBM(attributes=attributeNames, 
+               filters = filterType, 
+               values = filterValues_9, 
+               mart = ensembl)
+
+head(annot_30)
+head(annot_24)
+head(annot_15)
+head(annot_9)
+
+# Rename columns in dataframe:
+colnames(annot_30)
+colnames(annot_24)
+colnames(annot_15)
+colnames(annot_9)
+colnames(res_30mo_vs_2mo)
+colnames(res_24mo_vs_2mo)
+colnames(res_15mo_vs_2mo)
+colnames(res_9mo_vs_2mo)
+
+annot_final_30 <- as.data.frame(res_30mo_vs_2mo) %>% 
+    rownames_to_column("ensembl_gene_id") %>% 
+    left_join(annot_30, "ensembl_gene_id") %>% 
+    rename(logFC=log2FoldChange, FDR=padj)
+
+annot_final_24 <- as.data.frame(res_24mo_vs_2mo) %>% 
+    rownames_to_column("ensembl_gene_id") %>% 
+    left_join(annot_24, "ensembl_gene_id") %>% 
+    rename(logFC=log2FoldChange, FDR=padj)
+
+annot_final_15 <- as.data.frame(res_15mo_vs_2mo) %>% 
+    rownames_to_column("ensembl_gene_id") %>% 
+    left_join(annot_15, "ensembl_gene_id") %>% 
+    rename(logFC=log2FoldChange, FDR=padj)
+
+annot_final_9 <- as.data.frame(res_9mo_vs_2mo) %>% 
+    rownames_to_column("ensembl_gene_id") %>% 
+    left_join(annot_9, "ensembl_gene_id") %>% 
+    rename(logFC=log2FoldChange, FDR=padj)
+
+colnames(annot_final_30)
+colnames(annot_final_24)
+colnames(annot_final_15)
+colnames(annot_final_9)
+
+# Write results of each annotation file for each comparation:
+write.table(annot_final_30,file = "2_vs_30_anno.xls", sep = "\t")
+write.table(annot_final_24,file = "2_vs_24_anno.xls", sep = "\t")
+write.table(annot_final_15,file = "2_vs_15_anno.xls", sep = "\t")
+write.table(annot_final_9,file = "2_vs_9_anno.xls", sep = "\t")
+```
