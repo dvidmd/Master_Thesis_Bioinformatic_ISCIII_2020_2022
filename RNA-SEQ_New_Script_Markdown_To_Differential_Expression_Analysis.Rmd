@@ -1,0 +1,480 @@
+---
+title: "RNA-SEQ_NEW_SCRIPT_MARKDOWN_ANALYSE_DATA"
+author: "David Martínez Delgado"
+date: "10/25/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+###########################################################################################################################################################################################################
+
+##############################################################################################
+####################### RNA-SEQ NEW SCRIPT / MARKDOWN TO ANALYSE DATA ########################
+##############################################################################################
+
+####################################
+######### Data preparation #########
+####################################
+
+# IMPORTANT: ESTABLISH THE COMMPARISON AND THE INFORMATION WE WANT TO SHOW:
+
+desired_comparison <- "condition_iPSC_HFD_vs_iPSC_STD"
+reference <- "iPSC_STD"
+
+# Load packages:
+library("xlsx")    # xlsx: It allows us to produce excel files.
+library("ggplot2") # ggplot2: To make plots.
+library("DESeq2")  # DESeq2: Differential expression.
+
+# First, we need to indicate in which directory htseq-count files are located:
+Actual_directory <- getwd()
+htseq_folder <- "htseq"
+RESULTS_FOLDER <- "RESULTS"
+
+Directory <- paste(Actual_directory,htseq_folder, sep="/", collapse=NULL)
+Directory_RESULTS <- paste(Actual_directory,RESULTS_FOLDER, sep="/", collapse=NULL)
+
+# Activate library:
+library(readr)
+samples <- read_delim("Design.txt", "\t", escape_double = FALSE, trim_ws = TRUE, show_col_types = FALSE)
+
+# Showing records from samples file:
+head(samples, 10)
+
+## Importing data matrix and Differential Expression analysis. Import data matrix using "DESeqDataSetFromHTSeqCount"
+# http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=FBgn0261574%0A%23%23%20FBgn0261575%20FBgn0261575-,htseq-count%20input,-You%20can%20use
+
+# Load Data: 
+sampleFiles <- grep("htseq",list.files(Directory),value=TRUE)
+samples$ID
+
+sampleTable <- data.frame(sampleName = samples$ID,
+                          fileName = sampleFiles,
+                          condition = samples$condition)
+
+#sampleTable$batch<-samples$batch #In the case that we have batch to correct.
+
+# There is no batch, so it's not necessary to introduce the possible batch correction (library type, etc):
+ddsHTSeq <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
+                                       directory = Directory,
+                                       design= ~ condition)
+
+# We can add batch effect correction by using: http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=0.0999489%0A%23%23%20FBgn0034753%20%20%20%200.0999489-,Multi-factor,-designs
+
+# We should change its name to make it shorter:
+dds <- ddsHTSeq
+
+# See what dds is:
+dds
+dds$condition
+
+# Pre-filtering: We will not do this, because we don't want to remove real differences, but the manual recommends it:
+
+# Pre-filtering: While it is not necessary to pre-filter low count genes before running the DESeq2 functions, there are two reasons which make pre-filtering useful: by removing rows in which there are very few reads, 
+# we reduce the memory size of the dds data object, and we increase the speed of the transformation and testing functions within DESeq2. Here we perform a minimal pre-filtering to keep only rows that have at least 
+# 10 reads total. Note that more strict filtering to increase power is automatically applied via independent filtering on the mean of normalized counts within the results function.
+
+# http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=cell%20...%20Sample%20BioSample-,Pre-filtering,-While%20it%20is
+
+keep <- rowSums(counts(dds)) >= 1
+dds <- dds[keep,]
+
+# Establish the comparisons:
+
+#Information: By default, R will choose a reference level for factors based on alphabetical order. Then, if you never tell the DESeq2 functions which level you want to compare against (e.g. which level represents the 
+# control group), the comparisons will be based on the alphabetical order of the levels. There are two solutions: you can either explicitly tell results which comparison to make using the contrast argument (this will 
+# be shown later), or you can explicitly set the factors levels. In order to see the change of reference levels reflected in the results names, you need to either run DESeq or nbinomWaldTest/nbinomLRT after the re-
+# operation. Setting the factor levels can be done in two ways, either using factor:
+#http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=dds%20%3C-%20dds%5Bkeep%2C%5D-,Note%20on%20factor%20levels,-By%20default%2C%20R
+
+dds$condition <- relevel(dds$condition, ref = reference)
+dds
+
+#If you need to subset the columns of a DESeqDataSet, i.e., when removing certain samples from the analysis, it is possible that all the samples for one or more levels of a variable in the design formula would be removed. In this case, the droplevels function can be used to remove those levels which do not have samples in the current DESeqDataSet: dds$condition <- droplevels(dds$condition)
+# http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=condition%2C%20ref%20%3D%20%22untreated%22)-,If,-you%20need%20to
+
+# Differential expression analysis: We realised this process. In this case, to obtain more than p-value, we use results(dds) to know more statistics such as FDR:
+dds <- DESeq(dds)
+res <- results(dds)
+dds
+res
+resultsNames(dds)
+
+# Summary of the results (FDR>0.05):
+res05 <- results(dds, alpha=0.05)
+summary(res05)
+sum(res05$padj < 0.05, na.rm=TRUE)
+
+#If we want to test the analysis without independent filtering, we have to remove or comment the previous line and write the next one (that includes independentFiltering=FALSE:
+#resNoFilt <- results(dds, name="condition_iPSC_HFD_vs_iPSC_STD", independentFiltering=FALSE)
+#results(dds, independentFiltering=FALSE)
+#res$pvalue[res$baseMean < x] <- NA
+#res$padj <- p.adjust(res$pvalue, method="BH")
+
+# Log fold change shrinkage for visualization and ranking (we will use this object to make the Excel output file):
+resultsNames(dds)
+
+desired_comparison_object <- lfcShrink(dds, coef=desired_comparison, type="apeglm")
+desired_comparison_object
+
+# We can order our results table by the smallest p value by using: resOrdered <- res[order(res$pvalue),]
+
+# And know some statistics about the results by using:
+summary(desired_comparison_object)
+
+# Plots:
+
+to_plot_counts <- plotCounts(dds, gene=which.min(res$padj), intgroup="condition", returnData=TRUE)
+ggplot(to_plot_counts, aes(x=condition, y=count)) + geom_point(position=position_jitter(w=0.1,h=0)) + scale_y_log10(breaks=c(25,100,400))
+
+# More information on results columns: Information about which variables and tests were used can be found by calling the function mcols on the results object:
+mcols(res)$description
+
+#### IMPORTANT: HOW TO INTERPRET THE RESULTS?: For a particular gene, a log2 fold change of -1 for condition treated vs untreated means that the treatment induces a multiplicative change in observed gene expression level of 2−1=0.5 compared to the untreated condition. If the variable of interest is continuous-valued, then the reported log2 fold change is per unit of change of that variable.
+
+# Possible reasons of NAs values: http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=breaks%3Dc(25%2C100%2C400))-,More,-information%20on%20results
+
+# Transform data to produce normalized counts and vst corrected counts: http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=applying%20the%20transformation.-,Extracting,-transformed%20values
+
+vsd <- vst(dds, blind=FALSE)
+
+# Observe the first values of the object after the vst transformation:
+head(assay(vsd), 3) 
+
+# Obtain normalized read counts:
+normalized_counts <- counts(dds, normalized=TRUE)
+
+########################################################################
+# Batch correction by using limma:                                     #
+#mat <- assay(vsd)                                                     #
+#mm <- model.matrix(~condition, colData(vsd))                          #
+#mat <- limma::removeBatchEffect(mat, batch=vsd$batch, design=mm)      #
+#assay(vsd) <- mat                                                     #
+########################################################################
+
+# Principal Component Analysis representation:
+
+# If there is batch effect and we have to remove it, please, remove the "comment" symbol (#):
+#mat <- assay(vsd)
+#mm <- model.matrix(~condition, colData(vsd))
+#mat <- limma::removeBatchEffect(mat, batch=vsd$batch, design=mm)
+#assay(vsd) <- mat
+#plotPCA(vsd)
+
+plotPCA(vsd)
+plotPCA(vsd) + geom_text(aes(label=name),vjust=.5)
+
+# Plot PCA to know how to analyze: http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=col%3Dcolors)-,Principal,-component%20plot%20of
+
+#plotPCA(vsd, intgroup=c("condition", "type")) #==> Important: without "type" because in our case we work by using batch and in this analysis there is not batch correction).
+plotPCA(vsd, intgroup=c("condition"))
+
+# A more complex PCA:
+
+#pcaData <- plotPCA(vsd, intgroup=c("condition", "type"), returnData=TRUE) # IMPORTANT: Remove "type" for this specific analysis.
+#percentVar <- round(100 * attr(pcaData, "percentVar")) # Secondly
+#ggplot(pcaData, aes(PC1, PC2, color=condition, shape=type)) + geom_point(size=3) + xlab(paste0("PC1: ",percentVar[1],"% variance")) + ylab(paste0("PC2: ",percentVar[2],"% variance")) +  coord_fixed() # Secondly
+
+pcaData <- plotPCA(vsd, intgroup=c("condition"), returnData=TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+ggplot(pcaData, aes(PC1, PC2, color=condition)) + geom_point(size=3) + xlab(paste0("PC1: ",percentVar[1],"% variance")) + ylab(paste0("PC2: ",percentVar[2],"% variance")) +  coord_fixed()
+
+# In our case, we will not use interactions between variables, but they can be added by using the next information: http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=be%20found%20below.-,Interactions,-Interaction%20terms%20can
+
+# Produce a likelihood ratio test: http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=RNA-seq%20workflow.-,Likelihood,-ratio%20test
+
+# In the case that we need to know outliers distribution: http://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#:~:text=filtering%20if%20necessary.-,Note,-on%20many%20outliers
+par(mar=c(8,5,2,2))
+boxplot(log10(assays(dds)[["cooks"]]), range=0, las=2)
+
+# Check if the independent filtering works:
+
+use <- res$baseMean > metadata(res)$filterThreshold
+
+h1 <- hist(res$pvalue[!use], breaks=0:50/50, plot=FALSE)
+h2 <- hist(res$pvalue[use], breaks=0:50/50, plot=FALSE)
+
+colori <- c(`do not pass`="khaki", `pass`="powderblue")
+
+barplot(height = rbind(h1$counts, h2$counts), beside = FALSE,
+        col = colori, space = 0, main = "", ylab="frequency")
+
+text(x = c(0, length(h1$counts)), y = 0, label = paste(c(0,1)),
+     adj = c(0.5,1.7), xpd=NA)
+legend("topright", fill=rev(colori), legend=rev(names(colori)))
+
+##############################################
+################## ANNOTATION ################
+########### Annotate Ensembl genes ###########
+##############################################
+
+# Annotate Ensembl annotation:
+library(biomaRt)
+library(tidyverse)
+
+# View the available databases:
+listMarts()
+
+## Set up connection to ensembl database:
+ensembl=useMart("ENSEMBL_MART_ENSEMBL")
+
+# List the available datasets (species):
+listDatasets(ensembl) %>% 
+    filter(str_detect(description, "Mouse"))
+
+# Specify a data set to use:
+ensembl = useDataset("mmusculus_gene_ensembl", mart=ensembl)
+
+# Now we need to set up a query. For this we need to specify three things:
+# What type of information we are going to search the dataset on - called filters. In our case this is **Ensembl Gene IDs**
+# A vector of the values for our filter - the Ensembl Gene IDs from our DE results table. What columns (attributes) of the dataset we want returned.
+
+# Check the available "filters" - things you can filter for:
+listFilters(ensembl) %>% 
+    filter(str_detect(name, "ensembl"))
+
+# Set the filter type and values:
+filterType <- "ensembl_gene_id"
+filterValues <- rownames(desired_comparison_object)
+
+# Check the available "attributes" - things you can retreive:
+listAttributes(ensembl) %>% 
+    head(40)
+
+# Set the list of attributes:
+attributeNames <- c('ensembl_gene_id', 'external_gene_name', 'chromosome_name', 'start_position', 'end_position', 'strand', 'gene_biotype')
+
+# Run the query:
+annot <- getBM(attributes=attributeNames, filters = filterType, values = filterValues, mart = ensembl)
+head(annot)
+
+# Rename columns in dataframe:
+colnames(annot)
+colnames(desired_comparison_object)
+
+annot_final <- as.data.frame(desired_comparison_object) %>% 
+    rownames_to_column("ensembl_gene_id") %>% 
+    left_join(annot, "ensembl_gene_id") %>% 
+    rename(logFC=log2FoldChange, FDR=padj)
+
+annot_norm_reads <- as.data.frame(normalized_counts) %>% 
+    rownames_to_column("ensembl_gene_id") %>% 
+    left_join(annot, "ensembl_gene_id")
+
+tmp <- assay(vsd)
+
+annot_vsd <- as.data.frame(tmp) %>%
+    rownames_to_column("ensembl_gene_id") %>% 
+    left_join(annot, "ensembl_gene_id")
+```
+
+
+```{r}
+
+# Prepare to write results:
+
+setwd(Directory_RESULTS)
+
+xls_string <- "xls"
+xlsx_string <- "NEW_OFFICE.xlsx"
+
+name_results_xls <- paste(desired_comparison,xls_string, sep=".", collapse=NULL)
+name_results_xlsx <- paste(desired_comparison,xlsx_string, sep=".", collapse=NULL)
+
+no_shrinkage = "WITHOUT_SHRINKAGE.xls"
+no_shrinkage_new_office = "WITHOUT_SHRINKAGE_NEW_OFFICE.xlsx"
+
+name_without_shrinkage <- paste(desired_comparison,no_shrinkage, sep="_", collapse=NULL)
+name_without_shrinkage_new_office <- paste(desired_comparison,no_shrinkage_new_office, sep="_", collapse=NULL)
+
+# Write results:
+
+write.table(annot_final,file = name_results_xls, sep = "\t")
+
+write.table(annot_norm_reads,file = "normalized_counts.xls", sep = "\t")
+
+write.table(annot_vsd,file = "log2_vsd_normalized_reads.xls", sep = "\t")
+
+# Without Shrinkage:
+
+write.table(res,file = name_without_shrinkage, sep = "\t")
+
+
+# New excel format (xlsx: In can be used in Windows and Access):
+
+write.xlsx(annot_final, file= name_results_xlsx, sheetName=desired_comparison, row.names=TRUE)
+
+write.xlsx(annot_norm_reads, file="normalized_counts_NEW_OFFICE.xlsx", sheetName="normalized_counts", row.names=TRUE)
+
+write.xlsx(annot_vsd, file="log2_vsd_normalized_reads_NEW_OFFICE.xlsx", sheetName="log2_vsd_normalized_reads", row.names=TRUE)
+
+# New excel format (Without Shrinkage):
+
+write.xlsx(res, file=, sheetName=name_without_shrinkage_new_office, row.names=TRUE)
+
+###########################################################################################################################################################################################################
+
+```
+
+```{r}
+
+###########################################################################################################################################################################################################
+
+###################################################
+################ ORIGINAL ANALYSIS ################
+###################################################
+
+#####################################
+######### Data preparation ##########
+#####################################
+
+# First, we need to indicate in which directory htseq-count files are located:
+
+#dir <- "C:/Users/aleja/OneDrive - Universidade de Santiago de Compostela/PhD Alejandro Fuentes/Analysis/Aging/5moSTD_vs_5moHFD/htseq"
+
+# Activate library:
+#library(readr)
+#samples <- read_delim("samples.txt", "\t", escape_double = FALSE, trim_ws = TRUE)
+
+#Showing records from samples file:
+#head(samples, 12)
+
+## Importing data matrix and Differential Expression analysis ##
+# Import data matrix using "DESeqDataSetFromHTSeqCount"
+
+# Loading DESeq2 package:
+#library(DESeq2) 
+
+# Design sampleTable (Note that an extra "batch" column is necessary for batch correction):
+#files <- grep("htseq",list.files(dir),value=TRUE)
+
+#sampleTable <- data.frame(sampleName = samples$ID,
+#                          fileName = files,
+#                          condition = samples$condition)
+
+#sampleTable$batch<-samples$batch
+
+# Create a DESeq2 object with DESeqDataSetFromTximport function:
+#ddsHTSeq <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
+#                                       directory = dir,
+#                                       design= ~ condition)
+
+# Setting comparison order for DESeq2. If not configured, will be set in alphabetical order. Relevel allow us to specificate the reference level.
+#ddsHTSeq$condition <- factor(ddsHTSeq$condition, levels = c("2moSTD","28moSTD")) 
+#ddsHTSeq$condition <- relevel(ddsHTSeq$condition, ref = "5moSTD")
+
+# Change name to ddsHTSeq object.
+#dds <-ddsHTSeq
+
+# Pre-filtering (Removing rows in which we have less than 1 read in all samples combined):
+#dds <- dds[rowSums(DESeq2::counts(dds)) >= 1] 
+#keep <- rowSums(counts(dds)) >= 1
+#dds <- dds[keep,]
+
+# Run differential analysis with DESeq2:
+#dds<-DESeq(dds) 
+
+# Check comparisons name in order to select the ones that you will extract:
+#resultsNames(dds)
+
+# Fold change shrinkage:
+#library(apeglm)
+#condition_5moHFD_vs_5moSTD <- lfcShrink(dds, coef="condition_5moHFD_vs_5moSTD", type="apeglm")
+
+# Obtain normalized read counts:
+#normalized_counts <- counts(dds, normalized=TRUE)
+
+# vst transformation:
+#vsd <-vst(dds, blind = FALSE)
+
+# limma batch correction (In this case, we have to keep it commented):
+#mat <- assay(vsd)
+#mm <- model.matrix(~condition, colData(vsd))
+#mat <- limma::removeBatchEffect(mat, batch=vsd$batch, design=mm)
+#assay(vsd) <- mat
+
+#plotPCA(vsd)
+
+#library(ggplot2)
+#plotPCA(vsd) + geom_text(aes(label=name),vjust=.5)
+
+## Annotate Ensembl genes ##
+
+# Annotate Ensembl annotation:
+#library(biomaRt)
+#library(tidyverse)
+
+# View the available databases:
+#listMarts()
+
+## Set up connection to ensembl database:
+#ensembl=useMart("ENSEMBL_MART_ENSEMBL")
+
+# List the available datasets (species):
+#listDatasets(ensembl) %>% 
+#    filter(str_detect(description, "Mouse"))
+
+# Specify a data set to use:
+#ensembl = useDataset("mmusculus_gene_ensembl", mart=ensembl)
+
+# Now we need to set up a query. For this we need to specify three things:
+# What type of information we are going to search the dataset on - called filters. In our case this is **Ensembl Gene IDs**
+
+# A vector of the values for our filter - the Ensembl Gene IDs from our DE results table. What columns (attributes) of the dataset we want returned.
+
+# Check the available "filters" - things you can filter for:
+#listFilters(ensembl) %>% 
+#    filter(str_detect(name, "ensembl"))
+
+# Set the filter type and values:
+#filterType <- "ensembl_gene_id"
+#filterValues <- rownames(condition_5moHFD_vs_5moSTD)
+
+# Check the available "attributes" - things you can retrieve:
+#listAttributes(ensembl) %>% 
+#    head(40)
+
+# Set the list of attributes:
+#attributeNames <- c('ensembl_gene_id', 'external_gene_name', 'chromosome_name', 'start_position', 'end_position', 'strand', 'gene_biotype')
+
+# Run the query:
+#annot <- getBM(attributes=attributeNames, 
+#               filters = filterType, 
+#               values = filterValues, 
+#               mart = ensembl)
+
+#head(annot)
+
+# Rename columns in dataframe:
+#colnames(annot)
+#colnames(condition_5moHFD_vs_5moSTD)
+
+#annot_final <- as.data.frame(condition_5moHFD_vs_5moSTD) %>% 
+#    rownames_to_column("ensembl_gene_id") %>% 
+#    left_join(annot, "ensembl_gene_id") %>% 
+#    rename(logFC=log2FoldChange, FDR=padj)
+
+#annot_norm_reads <- as.data.frame(normalized_counts) %>% 
+#    rownames_to_column("ensembl_gene_id") %>% 
+#    left_join(annot, "ensembl_gene_id")
+
+#tmp <- assay(vsd)
+#annot_vsd <- as.data.frame(tmp) %>%
+#    rownames_to_column("ensembl_gene_id") %>% 
+#    left_join(annot, "ensembl_gene_id")
+
+#write.table(annot_final,file = "condition_5moHFD_vs_5moSTD.xls", sep = "\t")
+
+#write.table(annot_norm_reads,file = "normalized_counts.xls", sep = "\t")
+
+#write.table(annot_vsd,file = "log2_vsd_normalized_reads.xls", sep = "\t")
+
+###########################################################################################################################################################################################################
+
+```
