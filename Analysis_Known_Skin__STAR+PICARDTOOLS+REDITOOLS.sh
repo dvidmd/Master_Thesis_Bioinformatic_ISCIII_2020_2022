@@ -1,6 +1,8 @@
-###########################################################################################
-######################### Execute Reditools For Editing Analysis ##########################
-###########################################################################################
+###########################################################
+########## Execute Reditools For Editing Analysis #########
+###########################################################
+
+# This script will be applied to analyze the edited sites number and distribution using REDItools known analysis (only a curated list obtained from DARNED and REDIPORTAL databases).
 
 ###########################################################################################
 
