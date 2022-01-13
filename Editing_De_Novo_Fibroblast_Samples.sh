@@ -2,6 +2,8 @@
 ############ Execute Reditools For Editing Analysis: Fibroblast Anaysis De novo #############
 #############################################################################################
 
+# This script will be applied to analyze the edited sites number and distribution using REDItools "De novo" analysis (only a curated list obtained from DARNED and REDIPORTAL databases).
+
 # Samples:
 
 #NO_124 ==> 2mo_#09
