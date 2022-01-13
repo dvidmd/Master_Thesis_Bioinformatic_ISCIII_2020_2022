@@ -3,6 +3,8 @@
 # INDEX GENERATION (STAR 2.7.9a):
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+# This script was used to create the STAR genome index of Mus musculus genome (mm10 UCSC): 
+
 STAR --runThreadN 5 --runMode genomeGenerate --genomeDir ./GenomeDir_UCSC_mm10_STAR --genomeFastaFiles /home/vera/Desktop/DAVID_TFM/DATA/INDEX/MOUSE/STAR/Genome_Mus_musculus_UCSC_mm10/genome.fa --sjdbGTFfile /home/vera/Desktop/DAVID_TFM/DATA/INDEX/MOUSE/STAR/Genome_Mus_musculus_UCSC_mm10/genes.gtf --sjdbOverhang 100
 
 # With the new name of the files:
