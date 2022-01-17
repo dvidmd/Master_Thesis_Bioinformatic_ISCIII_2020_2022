@@ -1,0 +1,12 @@
+ID	run	condition	batch
+2mo_#09	NO_124_htseq.txt	2mo	fr_firststrand
+2mo_#11	NO_125_htseq.txt	2mo	fr_firststrand
+2mo_#12	NO_126_htseq.txt	2mo	fr_firststrand
+2mo_#10	NO_127_htseq.txt	2mo	fr_firststrand
+2mo_#13	NO_128_htseq.txt	2mo	fr_firststrand
+28mo_#16	NO_93_htseq.txt	28mo	Unstranded
+28mo_#17	NO_94_htseq.txt	28mo	Unstranded
+28mo_#20	NO_140_htseq.txt	28mo	fr_firststrand
+28mo_#21	NO_141_htseq.txt	28mo	fr_firststrand
+28mo_#22	NO_142_htseq.txt	28mo	fr_firststrand
+
